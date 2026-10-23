@@ -1,5 +1,3 @@
-import { redactTransportAuthentication } from "./transport-authentication.mjs";
-
 /** Parse the root npm lock inventory once for notices and security evidence. */
 export function lockedPackages(lock) {
   if (
@@ -37,7 +35,6 @@ export function lockedPackages(lock) {
       for (const field of ["name", "version", "resolved", "integrity"])
         if (typeof entry[field] !== "string" || entry[field].length === 0)
           throw new Error(`Missing locked ${field}: ${path}`);
-      entry.resolved = redactTransportAuthentication(entry.resolved);
       return entry;
     })
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lockedPackages } from "./lib/npm-locked-packages.mjs";
+import { redactTransportAuthentication } from "./lib/transport-authentication.mjs";
 import { ensureGeneratedFile } from "./lib/generated-file.mjs";
 
 const arguments_ = new Set(process.argv.slice(2));
@@ -14,7 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(
   await readFile(join(root, "package-lock.json"), "utf8"),
 );
-const entries = lockedPackages(lock);
+const entries = lockedPackages(lock).map((entry) => ({
+  ...entry,
+  resolved: redactTransportAuthentication(entry.resolved),
+}));
 const runtime = entries.filter(({ dev }) => !dev);
 const runtimeFingerprint = createHash("sha256")
   .update(JSON.stringify(runtime))

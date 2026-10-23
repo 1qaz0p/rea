@@ -117,4 +117,21 @@ test("generates locked inventory and rejects stale notice metadata or preserved 
   expect(
     await readFile(resolve(root, "licenses/npm-dependencies.txt"), "utf8"),
   ).toBe(inventory);
+  const locked = JSON.parse(
+    await readFile(resolve(root, "package-lock.json"), "utf8"),
+  ) as {
+    packages: Record<string, { resolved?: string }>;
+  };
+  const selected = locked.packages["node_modules/fixture-runtime"];
+  if (!selected) throw new Error("Missing fixture package");
+  selected.resolved = runtime.resolved.replace(
+    "https://",
+    "https://user:fixture-secret@",
+  );
+  await writeFile(resolve(root, "package-lock.json"), JSON.stringify(locked));
+  const redacted = await processes.run(process.execPath, [script]);
+  expect(redacted.exitCode, redacted.stderr).toBe(0);
+  expect(
+    await readFile(resolve(root, "licenses/npm-dependencies.txt"), "utf8"),
+  ).toBe(inventory);
 });

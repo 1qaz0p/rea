@@ -1,4 +1,9 @@
-import { installCanaryPackage } from "./lib/release-package-install.mjs";
+import {
+  installCanaryPackage,
+  consumerSecurityOptions,
+  consumerSecurityContext,
+  verifyCanaryDependencies,
+} from "./lib/release-package-install.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,11 +14,10 @@ import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: {
-    "dependency-security": { type: "string" },
-  },
+  options: consumerSecurityOptions,
 });
 const [tarball, version, ...extra] = positionals;
+const security = consumerSecurityContext(values);
 if (
   tarball === undefined ||
   typeof version !== "string" ||
@@ -33,29 +37,19 @@ const environment = {
 delete environment.HOPPER_TARGET_PATH;
 let result;
 try {
-  const packageRoot = await installCanaryPackage(
+  const installation = await installCanaryPackage(
     source,
     workspace,
     environment,
   );
-  if (values["dependency-security"] !== undefined) {
-    const { checkDependencySecurity } =
-      await import("./lib/dependency-security.mjs");
-    const report = await checkDependencySecurity({
-      directory: join(workspace, "installed"),
-      evidenceDirectory: values["dependency-security"],
-      referenceLockfile: resolve("package-lock.json"),
-      mode: "consumer",
-      sourceSha: process.env.GITHUB_SHA ?? null,
-      expectedVersion: version,
-      qualifiedTarball: source,
-      environment,
-    });
-    if (!report.checks_passed)
-      throw new Error(
-        `Qualified consumer dependency checks failed: ${report.evidence_directory}`,
-      );
-  }
+  const { packageRoot: packageRoot } = installation;
+  await verifyCanaryDependencies(
+    installation,
+    security,
+    version,
+    environment,
+    source,
+  );
   result = await verifyInstalledCanaryPackage(
     packageRoot,
     version,

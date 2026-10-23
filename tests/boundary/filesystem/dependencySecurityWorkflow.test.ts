@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { z } from "zod";
+import { consumerSecurityContext } from "../../../scripts/lib/release-package-install.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const execute = promisify(execFile);
@@ -72,6 +73,9 @@ it("requires fresh read-only registry checks with bounded installation and retai
   );
   expect(evidence?.if).toBe("always()");
   expect(evidence?.with?.path).toBe(".cache/dependency-security/");
+  expect(evidence?.with?.name).toBe(
+    "dependency-security-${{ github.run_attempt }}",
+  );
 });
 it.each([
   ["release", "rehearsal"],
@@ -88,12 +92,29 @@ it.each([
         ),
       ) ?? [];
     expect(canaries.length).toBeGreaterThan(0);
+    expect(
+      job?.steps?.find(
+        (entry) => entry.with?.path === ".cache/dependency-security/",
+      )?.with?.name,
+    ).toEqual(expect.stringContaining("${{ github.run_attempt }}"));
     for (const canary of canaries) {
       expect(canary.run).toContain(
         "--dependency-security=.cache/dependency-security",
       );
       expect(canary.if).toBeUndefined();
       expect(canary["continue-on-error"]).toBeUndefined();
+      if (workflow === "release-recovery") {
+        expect(canary.run).toContain(
+          "--dependency-source=.cache/release-source",
+        );
+        expect(canary.run).toContain(
+          '--dependency-source-sha="$RECOVERY_SOURCE_SHA"',
+        );
+        expect(canary.env).toEqual({
+          RECOVERY_VERSION: "${{ steps.release.outputs.version }}",
+          RECOVERY_SOURCE_SHA: "${{ steps.release.outputs.source_sha }}",
+        });
+      }
     }
     expect(
       job?.steps?.find(
@@ -139,10 +160,57 @@ it("validates lock identities before npm installation without importing installe
       { cwd: directory },
     );
   expect((await run()).stdout).toContain("supported npm registry");
+  lock.packages["node_modules/a"].resolved =
+    "https://user:fixture-secret@registry.npmjs.org/a.tgz";
+  await writeFile(lockfile, JSON.stringify(lock));
+  await expect(run()).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining("Unsupported registry"),
+  });
   lock.packages["node_modules/a"].resolved = "https://other.example/a.tgz";
   await writeFile(lockfile, JSON.stringify(lock));
   await expect(run()).rejects.toMatchObject({
     code: 1,
     stderr: expect.stringContaining("Unsupported registry"),
   });
+});
+
+it("binds recovery evidence to the original release source rather than the controller checkout", () => {
+  const controllerSha = "a".repeat(40),
+    releasedSha = "b".repeat(40);
+  const controller = resolve("controller-fixture"),
+    releasedSource = resolve("released-source-fixture");
+  const values = { "dependency-security": "evidence" };
+  expect(consumerSecurityContext(values, controller, controllerSha)).toEqual({
+    evidenceDirectory: "evidence",
+    referenceLockfile: join(controller, "package-lock.json"),
+    sourceSha: controllerSha,
+  });
+  expect(
+    consumerSecurityContext(
+      {
+        ...values,
+        "dependency-source": releasedSource,
+        "dependency-source-sha": releasedSha,
+      },
+      controller,
+      controllerSha,
+    ),
+  ).toEqual({
+    evidenceDirectory: "evidence",
+    referenceLockfile: join(releasedSource, "package-lock.json"),
+    sourceSha: releasedSha,
+  });
+  for (const incomplete of [
+    { ...values, "dependency-source": releasedSource },
+    { ...values, "dependency-source-sha": releasedSha },
+    {
+      "dependency-source": releasedSource,
+      "dependency-source-sha": releasedSha,
+    },
+  ])
+    expect(() => consumerSecurityContext(incomplete)).toThrow("require both");
+  expect(
+    consumerSecurityContext({}, controller, "legacy-unused-sha"),
+  ).toBeNull();
 });

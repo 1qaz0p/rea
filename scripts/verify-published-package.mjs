@@ -1,8 +1,13 @@
-import { installCanaryPackage } from "./lib/release-package-install.mjs";
+import {
+  installCanaryPackage,
+  consumerSecurityOptions,
+  consumerSecurityContext,
+  verifyCanaryDependencies,
+} from "./lib/release-package-install.mjs";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, join } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
@@ -16,11 +21,10 @@ const verifierRun = createVerifierRun();
 const execFileAsync = promisify(execFile);
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: {
-    "dependency-security": { type: "string" },
-  },
+  options: consumerSecurityOptions,
 });
 const [version] = positionals;
+const security = consumerSecurityContext(values);
 if (
   typeof version !== "string" ||
   valid(version) !== version ||
@@ -39,28 +43,18 @@ delete serverEnvironment.HOPPER_TARGET_PATH;
 let surface;
 let update;
 try {
-  const publishedRoot = await installCanaryPackage(
+  const installation = await installCanaryPackage(
     `rea-agents@${version}`,
     canaryRoot,
     serverEnvironment,
   );
-  if (values["dependency-security"] !== undefined) {
-    const { checkDependencySecurity } =
-      await import("./lib/dependency-security.mjs");
-    const report = await checkDependencySecurity({
-      directory: join(canaryRoot, "installed"),
-      evidenceDirectory: values["dependency-security"],
-      referenceLockfile: resolve("package-lock.json"),
-      mode: "consumer",
-      sourceSha: process.env.GITHUB_SHA ?? null,
-      expectedVersion: version,
-      environment: serverEnvironment,
-    });
-    if (!report.checks_passed)
-      throw new Error(
-        `Published consumer dependency checks failed: ${report.evidence_directory}`,
-      );
-  }
+  const { packageRoot: publishedRoot } = installation;
+  await verifyCanaryDependencies(
+    installation,
+    security,
+    version,
+    serverEnvironment,
+  );
   surface = await verifyInstalledCanaryPackage(
     publishedRoot,
     version,

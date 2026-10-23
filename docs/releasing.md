@@ -41,7 +41,9 @@ same checks on their actual installed consumer tree before executing REA.
 Installations disable lifecycle scripts and retain the generated consumer lock.
 Evidence artifacts contain command output, npm-resolved package identities and
 relationships, a content fingerprint, and version/integrity differences against
-the source lock. New semver-compatible versions are recorded; changed integrity
+the source lock. Recovery supplies the original released source directory and
+SHA independently of the corrected controller checkout.
+New semver-compatible versions are recorded; changed integrity
 for a source-locked identity fails. Unsupported registries, malformed output,
 unavailable registry evidence and exceeded output budgets fail the check.
 Optional omissions remain explicit. npm does not expose a verified-signature

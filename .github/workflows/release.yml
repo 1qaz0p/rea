@@ -348,7 +348,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: qualified-consumer-security
+          name: qualified-consumer-security-${{ github.run_attempt }}
           path: .cache/dependency-security/
           if-no-files-found: warn
           retention-days: 14
@@ -430,7 +430,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: published-consumer-security
+          name: published-consumer-security-${{ github.run_attempt }}
           path: .cache/dependency-security/
           if-no-files-found: warn
           retention-days: 14

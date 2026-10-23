@@ -62,13 +62,13 @@ if (values.mode === "preflight") {
       npm_config_maxsockets: "2",
       npm_config_prefer_online: "true",
     };
-    await installCanaryPackage(
+    const installation = await installCanaryPackage(
       `rea-agents@${product.version}`,
       workspace,
       environment,
     );
     report = await checkDependencySecurity({
-      directory: join(workspace, "installed"),
+      directory: installation.directory,
       referenceLockfile,
       evidenceDirectory: values.evidence,
       mode: "consumer",
