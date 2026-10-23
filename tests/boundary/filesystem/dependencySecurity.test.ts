@@ -115,6 +115,13 @@ it("accepts only supported registry identities and redacts only transport authen
   expect(redactTransportAuthentication(text)).toBe(
     "name=secret token=caller-value /tmp/secret https://EXAMPLE.com/a?q=token#keep",
   );
+  for (const scheme of ["HTTPS", "hTtPs", "HTTP"]) {
+    expect(
+      redactTransportAuthentication(
+        `${scheme}://user:fixture-secret@EXAMPLE.com/a?q=token#keep`,
+      ),
+    ).toBe(`${scheme}://EXAMPLE.com/a?q=token#keep`);
+  }
   expect(() =>
     lockedPackages({
       lockfileVersion: 3,

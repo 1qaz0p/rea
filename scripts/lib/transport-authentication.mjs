@@ -1,6 +1,6 @@
 /** Redact only HTTP URL authentication; keep paths, names, queries and other text. */
 export function redactTransportAuthentication(text) {
-  return text.replace(/https?:\/\/[^\s"<>\\]+/gu, (value) => {
+  return text.replace(/https?:\/\/[^\s"<>\\]+/giu, (value) => {
     try {
       const parsed = new URL(value);
       if (!parsed.username && !parsed.password) return value;
