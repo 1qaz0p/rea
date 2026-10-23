@@ -124,8 +124,10 @@ const missingSelectedTable = (name: string): SqliteInspectionFailure =>
   );
 // SQLite folds only ASCII letters when matching identifiers. Fold stored
 // bytes so replacement decoding cannot make distinct names share an identity.
+// Latin-1 maps every byte to one code unit without hex expansion. These opaque
+// keys are never returned as text or charged against the JSON reply budget.
 const sqliteNameBytesKey = (name: Uint8Array): string =>
-  Buffer.from(name).toString("hex");
+  Buffer.from(name.buffer, name.byteOffset, name.byteLength).toString("latin1");
 const sqliteIdentifierBytesKey = (
   name: Uint8Array,
   encoding: DatabaseEncoding,
@@ -147,7 +149,7 @@ const sqliteIdentifierBytesKey = (
         bytes[index + asciiOffset] = letter + 0x20;
     }
   }
-  return bytes.toString("hex");
+  return bytes.toString("latin1");
 };
 const sqliteNameBytes = (
   db: DatabaseSync,
@@ -333,14 +335,14 @@ const readSchema = (
     const value = tableRow.parse(raw);
     const nameKey = sqliteNameBytesKey(value.name);
     if (selectedName === undefined) {
-      metadataBudget.retain(nameKey);
+      metadataBudget.retain(value.display_name);
       metadata.set(nameKey, value);
     } else if (nameKey === selectedKey) {
       metadata.set(nameKey, value);
     }
     if (value.type === "virtual" && value.ncol === 0) {
       const virtualName = value.display_name;
-      const prefix = `${sqliteIdentifierBytesKey(value.name, encoding)}${underscore.toString("hex")}`;
+      const prefix = `${sqliteIdentifierBytesKey(value.name, encoding)}${underscore.toString("latin1")}`;
       if (
         selectedKey === undefined ||
         (unresolvedVirtualTables.length === 0 &&
