@@ -57,6 +57,8 @@ export const REPLAY_BODY_LIMIT_BYTES = 256 * 1024;
 /** How replay answers with an exchange's body; replay and tool descriptions both read it from here. */
 export type ReplayedBody =
   | { readonly kind: "none" }
+  /** Encoded source text was retained, but its declared encoding is not supported. */
+  | { readonly kind: "unsupported-encoding" }
   /** Non-UTF-8 bytes as base64; `whole` when every recorded byte fits the replay limit. */
   | {
       readonly kind: "base64";
@@ -75,6 +77,8 @@ const decodedBase64Bytes = (encoded: string): number =>
 
 /** Classify a retained body once: whole JSON-like UTF-8 text within the limit that parses exactly is JSON. */
 export const replayedBody = (exchange: RecordedExchange): ReplayedBody => {
+  if (exchange.bodyEncoding === "unsupported")
+    return { kind: "unsupported-encoding" };
   const text = exchange.bodyText;
   if (text === null) return { kind: "none" };
   if (exchange.bodyEncoding === "base64")

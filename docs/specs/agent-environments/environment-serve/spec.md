@@ -59,7 +59,9 @@ later increment.
   `recorded_line_truncated`; an explicit empty query is `?`), `body_recorded` (false
   when the capture kept no response body, so a `null` body is not mistaken for
   a recorded one), `body_encoding` (`base64` when the retained bytes are not
-  UTF-8, so they are returned exactly rather than decoded lossily) and
+  UTF-8, so they are returned exactly rather than decoded lossily;
+  `unsupported` with a null body and `body_recorded: true` when a declared HAR
+  encoding cannot be decoded; the cited capture retains its original text and encoding) and
   `truncated` (a large retained base64 body is decoded only up to that limit),
   as both
   structured content and text, with REA's existing target-content provenance

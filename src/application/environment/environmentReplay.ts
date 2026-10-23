@@ -37,7 +37,9 @@ export interface ReplayResult {
     readonly recorded_line_truncated: boolean;
     readonly content_type_truncated: boolean;
     readonly body_recorded: boolean;
-    readonly body_encoding: "utf-8" | "base64";
+    readonly body_encoding:
+      | "utf-8"
+      | NonNullable<RecordedExchange["bodyEncoding"]>;
     readonly truncated: boolean;
   };
 }
@@ -321,6 +323,7 @@ const replayBody = (exchange: RecordedExchange): ReplayBody => {
   const body = replayedBody(exchange);
   switch (body.kind) {
     case "none":
+    case "unsupported-encoding":
       return { body: null, truncated: false };
     case "base64":
       return body.whole
@@ -397,7 +400,8 @@ export const replayAnswer = (
         recordedPath.length < exchange.path.length ||
         (recordedQuery?.length ?? 0) < (exchange.query?.length ?? 0),
       content_type_truncated: contentType !== exchange.contentType,
-      body_recorded: exchange.bodyText !== null,
+      body_recorded:
+        exchange.bodyText !== null || exchange.bodyEncoding === "unsupported",
       body_encoding: exchange.bodyEncoding ?? "utf-8",
       truncated,
     },

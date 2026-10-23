@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import {
-  analysisViewCaptureEvidence,
-  environmentManifestCaptureFixture,
-} from "../../../tests/fixtures/analysisView.js";
+import { analysisViewCaptureEvidence } from "../../../tests/fixtures/analysisView.js";
+import { historicalHar } from "../../../tests/fixtures/historicalHar.js";
+import { decodeHarCapture } from "../../browser/history/HarCapture.js";
+import { webNetworkCaptureSchema } from "../../domain/webNetworkCapture.js";
 import {
   environmentServeFixture,
   environmentServeSource,
@@ -40,34 +40,44 @@ const replay = (
   return result.value;
 };
 
-/** The fixture source with /api/users/2's response replaced by HAR base64 content the decoder retained. */
-const base64Source = async (bytes: Buffer): Promise<EnvironmentSource> => {
-  const encoded = bytes.toString("base64");
-  const capture = environmentManifestCaptureFixture([
-    {
-      request: { method: "GET", url: "http://grafana.example/api/users/2" },
-      response: {
-        status: 200,
-        content: {
-          mimeType: "application/json",
-          text: encoded,
-          encoding: "base64",
+/** Import actual HAR content before deriving a manifest and replay source. */
+const recordedHarSource = async (text: string, encoding?: string) => {
+  const har = historicalHar();
+  const entry = har.log.entries[0]!;
+  const serialized = JSON.stringify({
+    log: {
+      ...har.log,
+      entries: [
+        {
+          ...entry,
+          request: {
+            ...entry.request,
+            url: "http://grafana.example/api/users/2",
+          },
+          response: {
+            ...entry.response,
+            content: {
+              ...entry.response.content,
+              mimeType: "application/json",
+              text,
+              ...(encoding === undefined ? {} : { encoding }),
+            },
+          },
         },
-      },
+      ],
     },
-  ]);
-  const record = capture.records[0];
-  if (record === undefined) throw new Error("Fixture lacks /api/users/2");
-  record.binary_fields = [
-    {
-      pointer: "/response/content/text",
-      representation: "har-base64-content",
-      state: "retained",
-      content_base64: encoded,
-      bytes: bytes.length,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+  const capture = webNetworkCaptureSchema.parse({
+    ...decodeHarCapture(serialized, []),
+    artifact: {
+      path: "/fixtures/replay.har",
+      bytes: Buffer.byteLength(serialized),
+      sha256: createHash("sha256").update(serialized).digest("hex"),
     },
-  ];
+    format: "har",
+    runtime_attribution: "unknown",
+    limitations: [],
+  });
   const evidence = analysisViewCaptureEvidence(capture);
   const manifest = await inspectAnalysisView({
     source: { kind: "inline", evidence },
@@ -77,11 +87,17 @@ const base64Source = async (bytes: Buffer): Promise<EnvironmentSource> => {
   expect(environmentServeFixture().manifest.evidence_id).not.toBe(
     manifest.value.evidence_id,
   );
-  return environmentServeSource({
-    manifest: manifest.value,
-    capture: evidence,
-  });
+  return {
+    evidence,
+    source: environmentServeSource({
+      manifest: manifest.value,
+      capture: evidence,
+    }),
+  };
 };
+
+const base64Source = async (bytes: Buffer): Promise<EnvironmentSource> =>
+  (await recordedHarSource(bytes.toString("base64"), "base64")).source;
 
 describe("replay argument mapping and query admission", () => {
   it("does not inspect a recorded query when no query argument can affect selection", () => {
@@ -142,6 +158,66 @@ describe("encoded replay path segments", () => {
       });
     },
   );
+});
+
+describe("HAR response encodings", () => {
+  it.each(["hex", "base64url", "BASE64", ""])(
+    "keeps unsupported HAR encoding %j opaque through replay and state extraction",
+    async (encoding) => {
+      const text = '{"id":2,"login":"opaque"}';
+      const { source, evidence } = await recordedHarSource(text, encoding);
+      expect(evidence.normalized_result).toMatchObject({
+        records: [
+          {
+            reported: {
+              response: { content: { text, encoding } },
+            },
+          },
+        ],
+      });
+      expect(replay("get_users_by_id", { id: "2" }, source)).toMatchObject({
+        status: 200,
+        body: null,
+        replay: {
+          evidence_id: evidence.evidence_id,
+          record_ordinal: 0,
+          body_recorded: true,
+          body_encoding: "unsupported",
+          truncated: false,
+        },
+      });
+      const state = await inspectAnalysisView({
+        source: { kind: "inline", evidence },
+        view: { kind: "environment-state" },
+      });
+      if (!state.ok) throw state.error;
+      expect(state.value.normalized_result).toMatchObject({
+        entities: [],
+        documents: [],
+        views: [
+          {
+            tool: "get_users_by_id",
+            shape: "recorded",
+            reason: "body-unusable",
+          },
+        ],
+      });
+    },
+  );
+
+  it("retains plain and supported base64 HAR JSON controls", async () => {
+    const text = '{"id":2,"login":"decoded"}';
+    for (const [reported, encoding] of [
+      [text, undefined],
+      [Buffer.from(text).toString("base64"), "base64"],
+    ] as const) {
+      const { source } = await recordedHarSource(reported, encoding);
+      expect(replay("get_users_by_id", { id: "2" }, source)).toMatchObject({
+        body: { id: 2, login: "decoded" },
+        replay: { body_encoding: "utf-8" },
+      });
+    }
+  });
 });
 
 describe("replayEnvironmentTool selection", () => {

@@ -215,7 +215,11 @@ text with `truncated: true`. `body_recorded` is false when the capture kept the
 response's status and content type but no body; `body` is then `null`, which
 is not a recorded JSON `null`. `body_encoding` is `base64` when the capture
 retained response bytes that are not valid UTF-8; `body` is then exactly those
-bytes in base64, never a lossy decoding. A retained base64 body is decoded only as far as the 256 KiB a reply can carry, and a leading byte-order mark is kept. For a `base64` body the limit applies to the recorded bytes, not their longer base64 spelling, and a cut keeps whole base64 groups. Request bodies passed to `POST`, `PUT` and `PATCH`
+bytes in base64, never a lossy decoding. An unsupported declared HAR encoding
+returns `body: null`, `body_recorded: true` and `body_encoding: "unsupported"`;
+the original encoding and encoded text remain in the cited capture Evidence.
+Such bodies supply no decoded JSON facts to state extraction.
+A retained base64 body is decoded only as far as the 256 KiB a reply can carry, and a leading byte-order mark is kept. For a `base64` body the limit applies to the recorded bytes, not their longer base64 spelling, and a cut keeps whole base64 groups. Request bodies passed to `POST`, `PUT` and `PATCH`
 tools are accepted and ignored: nothing is written, and no call changes what a
 later call returns. Arguments the tool's input schema does not name are
 refused by the MCP server as invalid arguments, so a misspelled parameter never

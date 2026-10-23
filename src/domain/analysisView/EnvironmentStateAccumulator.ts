@@ -69,7 +69,7 @@ export const stateBodyJson = (
     contentType === null ||
     !isJsonLike(mediaTypeEssence(contentType)) ||
     body.bodyText === null ||
-    body.bodyEncoding === "base64" ||
+    body.bodyEncoding !== undefined ||
     body.bodyCut === true ||
     Buffer.byteLength(body.bodyText, "utf8") > STATE_BODY_LIMIT_BYTES
   )
