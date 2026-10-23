@@ -418,6 +418,32 @@ it("does not expose a complete tree fingerprint after a failed npm tree command"
   });
   expect(report.checks_passed).toBe(false);
 });
+it("keeps unbound integrity unknown instead of claiming changed bytes or a new version", async () => {
+  const fixture = await scanFixture();
+  const original = fixture.results.get("tree");
+  if (!original) throw new Error("Missing fixture tree");
+  const tree = JSON.parse(original.stdout) as {
+    dependencies: { a: { resolved: string } };
+  };
+  tree.dependencies.a.resolved =
+    "https://registry.npmjs.org/a/-/another-source.tgz";
+  fixture.results.set("tree", observation(tree));
+  const report = await fixture.scan();
+  expect(report.checks_passed).toBe(false);
+  expect(report.tree).toMatchObject({
+    status: "unavailable",
+    changed_locked_integrities: 0,
+    unknown_locked_integrities: 1,
+    versions_outside_source_lock: 0,
+    content_graph_sha256: null,
+  });
+  expect(
+    await readFile(
+      join(report.evidence_directory, "source-identity-differences.json"),
+      "utf8",
+    ),
+  ).toContain('"reason": "integrity_unknown"');
+});
 it("bounds retained command output and marks overflow unavailable", async () => {
   const fixture = await scanFixture();
   fixture.results.set("audit", {
@@ -431,9 +457,58 @@ it("bounds retained command output and marks overflow unavailable", async () => 
   expect(report.checks_passed).toBe(false);
   expect(report.advisory.status).toBe("unavailable");
   expect(
-    (await readFile(join(report.evidence_directory, "audit.json"))).length,
-  ).toBe(SECURITY_OUTPUT_BYTES);
+    await readFile(join(report.evidence_directory, "audit.json"), "utf8"),
+  ).toContain("Output not retained");
 });
+it.each(["stdout", "stderr"] as const)(
+  "does not retain credentials crossing the %s capture budget",
+  async (stream) => {
+    const fixture = await scanFixture();
+    const output = observation(clean);
+    const partialUrl = "HTTPS://user:fixture-secret";
+    output[stream] =
+      "x".repeat(SECURITY_OUTPUT_BYTES - partialUrl.length) +
+      partialUrl +
+      "@registry.npmjs.org/a";
+    fixture.results.set("audit", output);
+    const report = await fixture.scan();
+    expect(report.checks_passed).toBe(false);
+    for (const name of ["audit.json", "audit.stderr.txt"]) {
+      const retained = await readFile(
+        join(report.evidence_directory, name),
+        "utf8",
+      );
+      expect(retained).not.toContain("fixture-secret");
+      expect(retained).toContain("Output not retained");
+      expect(Buffer.byteLength(retained)).toBeLessThan(128);
+    }
+  },
+);
+it.each(["ERR_CHILD_PROCESS_STDIO_MAXBUFFER", "SIGTERM"])(
+  "does not retain a prefix already cut by %s",
+  async (failure) => {
+    const fixture = await scanFixture();
+    fixture.results.set("audit", {
+      stdout: "HTTPS://user:fixture-secret",
+      stderr: "HTTPS://user:fixture-secret",
+      exitCode: null,
+      elapsedMs: 1,
+      failure,
+    });
+    const report = await fixture.scan();
+    expect(report.advisory.status).toBe("unavailable");
+    expect(report.checks_passed).toBe(false);
+    const evidence = await readFile(
+      join(report.evidence_directory, "audit.json"),
+      "utf8",
+    );
+    expect(evidence).toContain("Output not retained");
+    expect(evidence).not.toContain("fixture-secret");
+    expect(
+      await readFile(join(report.evidence_directory, "report.json"), "utf8"),
+    ).toContain('"output_retained": false');
+  },
+);
 it("records floating consumer versions while rejecting changed bytes and unsupported registries", async () => {
   const floating = await (
     await scanFixture({ consumer: true, changedVersion: true })

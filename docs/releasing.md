@@ -57,6 +57,8 @@ locked dependencies, or `--mode=published` for a fresh current-release consumer.
 registry concurrency to two connections and runs scans sequentially; each
 command has a three-minute deadline and a 16 MiB output budget. No prior pass is
 used in place of a live advisory or signature check.
+Over-budget or interrupted command captures retain failure metadata rather than
+an unsafe truncated prefix; that evidence is unavailable and cannot pass.
 
 Before publishing, npm lookup failures and malformed metadata stop the job.
 An existing version must match the qualified tarball's SHA-512 and intended

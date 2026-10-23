@@ -68,7 +68,7 @@ export async function checkDependencySecurity(
   const retain = async (name, source) => {
     const rendered = redactTransportAuthentication(source);
     await writeFile(join(evidence, name), rendered);
-    return digest(rendered);
+    return { sha256: digest(rendered), text: rendered };
   };
   const report = {
     schema_version: 1,
@@ -100,8 +100,12 @@ export async function checkDependencySecurity(
   };
   const finish = async () => {
     report.completed_at = new Date().toISOString();
-    await retain("report.json", JSON.stringify(report, null, 2) + "\n");
-    return report;
+    const retained = await retain(
+      "report.json",
+      JSON.stringify(report, null, 2) + "\n",
+    );
+    // CLI/programmatic summaries expose the same redacted view as the artifact.
+    return JSON.parse(retained.text);
   };
   let reference;
   let selectedLockSha;
@@ -126,10 +130,9 @@ export async function checkDependencySecurity(
     selectedLockSha = digest(selectedBytes);
     installedPackages = lockedPackages(JSON.parse(selectedBytes));
     report.selected_lock_sha256 = selectedLockSha;
-    report.retained_lock_sha256 = await retain(
-      "selected-package-lock.json",
-      selectedBytes.toString("utf8"),
-    );
+    report.retained_lock_sha256 = (
+      await retain("selected-package-lock.json", selectedBytes.toString("utf8"))
+    ).sha256;
     const product = JSON.parse(
       await readFile(
         join(
@@ -173,18 +176,20 @@ export async function checkDependencySecurity(
     const oversized =
       Buffer.byteLength(result.stdout) > SECURITY_OUTPUT_BYTES ||
       Buffer.byteLength(result.stderr) > SECURITY_OUTPUT_BYTES;
-    if (oversized) {
+    const incomplete =
+      oversized ||
+      result.exitCode === null ||
+      result.failure === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+    if (oversized || result.failure === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
       result.exitCode = null;
       result.failure = "output_limit";
     }
-    const bounded = (value) =>
-      Buffer.byteLength(value) <= SECURITY_OUTPUT_BYTES
-        ? value
-        : Buffer.from(value)
-            .subarray(0, SECURITY_OUTPUT_BYTES)
-            .toString("utf8");
-    const stdout = bounded(result.stdout),
-      stderr = bounded(result.stderr);
+    // execFile may already have cut a URL before its host/@ delimiter. An
+    // incomplete capture cannot be safely rendered as a retained text prefix.
+    const omitted =
+      "Output not retained: capture incomplete or exceeded the evidence budget.\n";
+    const stdout = incomplete ? omitted : result.stdout,
+      stderr = incomplete ? omitted : result.stderr;
     const stdoutHash = await retain(`${name}.${json ? "json" : "txt"}`, stdout);
     const stderrHash = await retain(`${name}.stderr.txt`, stderr);
     report.commands.push({
@@ -192,12 +197,13 @@ export async function checkDependencySecurity(
       exit_code: result.exitCode,
       elapsed_ms: result.elapsedMs,
       failure: result.failure,
-      stdout_sha256: stdoutHash,
-      stderr_sha256: stderrHash,
+      output_retained: !incomplete,
+      stdout_sha256: stdoutHash.sha256,
+      stderr_sha256: stderrHash.sha256,
     });
     let value = null;
     try {
-      value = oversized ? null : json ? JSON.parse(stdout) : stdout.trim();
+      value = incomplete ? null : json ? JSON.parse(stdout) : stdout.trim();
     } catch {
       /* Raw malformed evidence is retained; never interpret it as zero. */
     }
@@ -301,8 +307,11 @@ export async function checkDependencySecurity(
     const byteDifferences = differences.filter(
       (entry) => entry.reason === "integrity_differs",
     );
+    const unknownIntegrities = differences.filter(
+      (entry) => entry.reason === "integrity_unknown",
+    );
     const status =
-      graph.unknowns.length || tree.exitCode !== 0
+      graph.unknowns.length || unknownIntegrities.length || tree.exitCode !== 0
         ? "unavailable"
         : byteDifferences.length || (mode === "source" && differences.length)
           ? "failed"
@@ -314,8 +323,11 @@ export async function checkDependencySecurity(
       optional_not_reported: graph.omissions.length,
       unknowns: graph.unknowns.length,
       content_graph_sha256: graph.fingerprint,
-      versions_outside_source_lock: differences.length - byteDifferences.length,
+      versions_outside_source_lock: differences.filter(
+        (entry) => entry.reason === "version_not_locked",
+      ).length,
       changed_locked_integrities: byteDifferences.length,
+      unknown_locked_integrities: unknownIntegrities.length,
     };
   } catch (error) {
     report.tree = unavailable(error.message);

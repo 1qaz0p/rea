@@ -236,7 +236,9 @@ export function sourceIdentityDifferences(nodes, reference, runtimeOnly) {
           ...node,
           source_identities: expected,
           reason: sameVersion.length
-            ? "integrity_differs"
+            ? node.integrity === null
+              ? "integrity_unknown"
+              : "integrity_differs"
             : "version_not_locked",
         },
       ];

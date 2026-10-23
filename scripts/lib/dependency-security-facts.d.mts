@@ -52,5 +52,5 @@ export function sourceIdentityDifferences(
   reference: LockedPackage[],
   runtimeOnly: boolean,
 ): (InstalledPackage & {
-  reason: "integrity_differs" | "version_not_locked";
+  reason: "integrity_differs" | "integrity_unknown" | "version_not_locked";
 })[];
