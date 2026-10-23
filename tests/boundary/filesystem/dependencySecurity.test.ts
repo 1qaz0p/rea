@@ -236,6 +236,7 @@ async function scanFixture(
     changedVersion?: boolean;
     changedIntegrity?: boolean;
     mirror?: boolean;
+    authenticated?: boolean;
     tarball?: boolean;
   } = {},
 ) {
@@ -272,6 +273,8 @@ async function scanFixture(
   if (options.changedIntegrity)
     a.integrity = `sha512-${Buffer.alloc(64, 2).toString("base64")}`;
   if (options.mirror) a.resolved = "https://mirror.example/a.tgz";
+  if (options.authenticated)
+    a.resolved = `HTTPS://user:fixture-secret@registry.npmjs.org/a/-/a-${a.version}.tgz`;
   const dependencies: Record<string, unknown> = { a };
   let qualifiedTarball: string | undefined;
   if (options.consumer) {
@@ -303,6 +306,12 @@ async function scanFixture(
       ),
     }),
   );
+  const reported = structuredClone(dependencies);
+  if (options.authenticated) {
+    const selected = reported.a as { resolved?: string; integrity?: string };
+    delete selected.resolved;
+    delete selected.integrity;
+  }
   const results = new Map([
     [
       "npm-version",
@@ -322,7 +331,7 @@ async function scanFixture(
         name: "rea-agents",
         version: "6.7.0",
         path: directory,
-        dependencies,
+        dependencies: reported,
       }),
     ],
   ]);
@@ -451,6 +460,38 @@ it("binds the local consumer exception to the selected archive's SHA-512 bytes",
   if (!fixture.qualifiedTarball) throw new Error("Missing fixture tarball");
   await writeFile(fixture.qualifiedTarball, "changed bytes");
   expect((await fixture.scan()).checks_passed).toBe(false);
+});
+
+it("redacts raw lock credentials from every retained partial consumer representation", async () => {
+  const fixture = await scanFixture({
+    consumer: true,
+    authenticated: true,
+    changedVersion: true,
+  });
+  const report = await fixture.scan();
+  expect(report.checks_passed).toBe(false);
+  expect(report.tree.status).toBe("unavailable");
+  for (const name of [
+    "selected-package-lock.json",
+    "tree-facts.json",
+    "source-identity-differences.json",
+    "report.json",
+    "installed-tree.json",
+  ]) {
+    const retained = await readFile(
+      join(report.evidence_directory, name),
+      "utf8",
+    );
+    expect(retained).not.toContain("fixture-secret");
+    if (
+      [
+        "selected-package-lock.json",
+        "tree-facts.json",
+        "source-identity-differences.json",
+      ].includes(name)
+    )
+      expect(retained).toContain("HTTPS://registry.npmjs.org/a/-/a-2.0.0.tgz");
+  }
 });
 
 it("uses the selected lock for declared integrity when npm reads uncached package metadata", () => {

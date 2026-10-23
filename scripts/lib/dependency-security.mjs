@@ -63,6 +63,13 @@ export async function checkDependencySecurity(
   directory = resolve(directory);
   await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
   const evidence = await mkdtemp(join(resolve(evidenceDirectory), "run-"));
+  // Keep parsed facts intact. Every retained representation crosses this one
+  // authentication-redaction boundary, including partial/failed graph facts.
+  const retain = async (name, source) => {
+    const rendered = redactTransportAuthentication(source);
+    await writeFile(join(evidence, name), rendered);
+    return digest(rendered);
+  };
   const report = {
     schema_version: 1,
     checks_passed: false,
@@ -93,10 +100,7 @@ export async function checkDependencySecurity(
   };
   const finish = async () => {
     report.completed_at = new Date().toISOString();
-    await writeFile(
-      join(evidence, "report.json"),
-      JSON.stringify(report, null, 2) + "\n",
-    );
+    await retain("report.json", JSON.stringify(report, null, 2) + "\n");
     return report;
   };
   let reference;
@@ -122,11 +126,10 @@ export async function checkDependencySecurity(
     selectedLockSha = digest(selectedBytes);
     installedPackages = lockedPackages(JSON.parse(selectedBytes));
     report.selected_lock_sha256 = selectedLockSha;
-    const retainedLock = redactTransportAuthentication(
+    report.retained_lock_sha256 = await retain(
+      "selected-package-lock.json",
       selectedBytes.toString("utf8"),
     );
-    await writeFile(join(evidence, "selected-package-lock.json"), retainedLock);
-    report.retained_lock_sha256 = digest(retainedLock);
     const product = JSON.parse(
       await readFile(
         join(
@@ -180,17 +183,17 @@ export async function checkDependencySecurity(
         : Buffer.from(value)
             .subarray(0, SECURITY_OUTPUT_BYTES)
             .toString("utf8");
-    const stdout = redactTransportAuthentication(bounded(result.stdout)),
-      stderr = redactTransportAuthentication(bounded(result.stderr));
-    await writeFile(join(evidence, `${name}.${json ? "json" : "txt"}`), stdout);
-    await writeFile(join(evidence, `${name}.stderr.txt`), stderr);
+    const stdout = bounded(result.stdout),
+      stderr = bounded(result.stderr);
+    const stdoutHash = await retain(`${name}.${json ? "json" : "txt"}`, stdout);
+    const stderrHash = await retain(`${name}.stderr.txt`, stderr);
     report.commands.push({
       name,
       exit_code: result.exitCode,
       elapsed_ms: result.elapsedMs,
       failure: result.failure,
-      stdout_sha256: digest(stdout),
-      stderr_sha256: digest(stderr),
+      stdout_sha256: stdoutHash,
+      stderr_sha256: stderrHash,
     });
     let value = null;
     try {
@@ -290,12 +293,9 @@ export async function checkDependencySecurity(
       reference,
       mode === "consumer",
     );
-    await writeFile(
-      join(evidence, "tree-facts.json"),
-      JSON.stringify(graph, null, 2) + "\n",
-    );
-    await writeFile(
-      join(evidence, "source-identity-differences.json"),
+    await retain("tree-facts.json", JSON.stringify(graph, null, 2) + "\n");
+    await retain(
+      "source-identity-differences.json",
       JSON.stringify(differences, null, 2) + "\n",
     );
     const byteDifferences = differences.filter(
