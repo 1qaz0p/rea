@@ -550,11 +550,15 @@ verification Evidence without this separate count leaves it unknown (`null`).
 
 An empty declared import name remains unchanged in verification Evidence and
 produces no native-name candidates. With a supplied PE native context and
-`no_mangle: false`, an unspecified charset includes the ANSI `A` candidate;
-`auto` includes the Windows Unicode `W` candidate. Other native formats do not
-inherit these Windows defaults. These suffixes are static inferred candidates;
-exact spelling still suppresses decoration and no runtime binding is proven.
-The mapping follows [Microsoft's charset guidance](https://learn.microsoft.com/en-us/dotnet/standard/native-interop/charset).
+`no_mangle: false`, ANSI or an unspecified charset includes the `A` candidate;
+Unicode or `auto` includes the `W` candidate. Windows stdcall spelling candidates
+also require PE context. ELF, Mach-O and unknown native formats retain the
+declared name without adding Windows spelling variants, including for explicit
+charsets. Normalization of a Mach-O export's leading underscore remains separate.
+These are static inferred candidates; exact spelling still suppresses decoration
+and no runtime binding or ABI equivalence is proven. The mapping follows
+[Microsoft's charset guidance](https://learn.microsoft.com/en-us/dotnet/standard/native-interop/charset)
+and [.NET's platform-specific entry-point lookup](https://github.com/dotnet/runtime/blob/v10.0.0/src/coreclr/vm/method.cpp#L3134-L3177).
 Partial input coverage records a residual question even when no unresolved
 individual boundary was produced. Selected literal inventories likewise remain
 partial when unknown MethodDef ownership can hide a selected body.

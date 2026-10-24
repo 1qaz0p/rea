@@ -17,7 +17,10 @@ import {
   managedNativeVerificationInputSchema,
   managedNativeVerificationResultSchema,
 } from "../../../../src/domain/managed/managedNativeVerificationSchemas.js";
-import { managedNativeBoundaryInspectionSchema } from "../../../../src/domain/managed/managedArtifact.js";
+import {
+  managedNativeBoundaryInspectionSchema,
+  type ManagedNativeBoundaryInspection,
+} from "../../../../src/domain/managed/managedArtifact.js";
 import { inspectMachoSchema } from "../../../../src/domain/native/nativeInspection.js";
 import { functionDossierSchema } from "../../../../src/domain/hopperValues.js";
 
@@ -124,7 +127,15 @@ const nativeFunctionEvidence = (
   );
 };
 
-const inputWithImportScope = (scope: string | null) => {
+type PinvokeDeclaration =
+  ManagedNativeBoundaryInspection["pinvoke_imports"][number];
+
+const inputWithImportScope = (
+  scope: string | null,
+  declaration: Partial<
+    Pick<PinvokeDeclaration, "char_set" | "no_mangle" | "call_convention">
+  > = {},
+) => {
   const input = exampleInput();
   const managed = input.managed_boundaries;
   const normalized = managedNativeBoundaryInspectionSchema.parse(
@@ -140,6 +151,7 @@ const inputWithImportScope = (scope: string | null) => {
         pinvoke_imports: normalized.pinvoke_imports.map((item) => ({
           ...item,
           import_scope_name: scope,
+          ...declaration,
         })),
       },
       rawResult: null,
@@ -477,6 +489,92 @@ it("keeps explicit PE module suffixes distinct and permits the Windows DLL varia
     verify("C:\\examples\\nativehelper.dll", "C:\\other\\nativehelper.dll"),
   ).toMatchObject({ status: "contradicted", basis: "module-mismatch" });
 });
+
+describe.each([
+  { format: "pe", path: "/examples/nativehelper.dll", decorated: true },
+  { format: "elf", path: "/examples/libnativehelper.so", decorated: false },
+  {
+    format: "mach-o",
+    path: "/examples/libnativehelper.dylib",
+    decorated: false,
+  },
+  { format: "file", path: "/examples/nativehelper", decorated: false },
+] as const)(
+  "P/Invoke entry-point naming for $format",
+  ({ format, path, decorated }) => {
+    it.each([
+      ["ansi", "cdecl", "open_nativeA"],
+      ["unicode", "cdecl", "open_nativeW"],
+      ["not-specified", "cdecl", "open_nativeA"],
+      ["auto", "cdecl", "open_nativeW"],
+      ["not-specified", "stdcall", "_open_native"],
+      ["not-specified", "stdcall", "_open_native@0"],
+    ] as const)(
+      "classifies %s %s candidate %s",
+      (charSet, convention, name) => {
+        const result = verifyManagedNativeBoundaries({
+          ...inputWithImportScope(path, {
+            char_set: charSet,
+            no_mangle: false,
+            call_convention: convention,
+          }),
+          native_observations: [nativeFunctionEvidence(path, format, name)],
+        }).pinvoke_imports[0];
+        expect(result?.managed).toMatchObject({
+          char_set: charSet,
+          call_convention: convention,
+          no_mangle: false,
+        });
+        expect(result).toMatchObject(
+          decorated
+            ? {
+                status: "inferred",
+                basis: "decorated-name-candidate",
+                confidence: "inferred",
+                matched_native: { name },
+              }
+            : {
+                status: "unresolved",
+                basis: "no-native-candidate",
+                confidence: "unknown",
+                matched_native: null,
+                candidates: [],
+              },
+        );
+      },
+    );
+  },
+);
+
+it.each([
+  ["_open_native", "verified", "exact-export-name"],
+  ["__open_native", "unresolved", "no-native-candidate"],
+] as const)(
+  "keeps Mach-O export linkage separate from Windows probing: %s",
+  (name, status, basis) => {
+    const path = "/examples/libnativehelper.dylib";
+    const result = verifyManagedNativeBoundaries({
+      ...inputWithImportScope(path, {
+        char_set: "not-specified",
+        call_convention: "stdcall",
+        no_mangle: false,
+      }),
+      native_observations: [nativeEvidenceWithExports([name], path)],
+    }).pinvoke_imports[0];
+    expect(result).toMatchObject({ status, basis });
+    if (status === "verified")
+      expect(result?.matched_native).toMatchObject({
+        name,
+        source: "macho-export",
+      });
+    else
+      expect(result).toMatchObject({
+        confidence: "unknown",
+        matched_native: null,
+        candidates: [],
+      });
+  },
+);
 
 it("keeps empty identities unknown and compares suffix-only identities as data", () => {
   for (const scope of [null, "", "   "]) {

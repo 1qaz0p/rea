@@ -6,7 +6,10 @@ import { afterAll, beforeAll, expect } from "vitest";
 
 import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { functionDossierSchema } from "../../../src/domain/hopperValues.js";
-import { managedNativeVerificationResultSchema } from "../../../src/domain/managed/managedNativeVerificationSchemas.js";
+import {
+  managedNativeVerificationResultSchema,
+  type ManagedNativeVerificationResult,
+} from "../../../src/domain/managed/managedNativeVerificationSchemas.js";
 import { buildManagedPeFixture } from "../../../src/dotnet/ManagedPe.fixture.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -47,84 +50,156 @@ const signatureEvidence = () =>
     },
   );
 
-cliTest(
-  "preserves explicit PE module suffixes and matches only the Windows DLL variation through CLI and MCP",
-  async ({ cli }) => {
-    const root = await createTestTempDirectory(
-      "rea-managed-native-module-names-",
-    );
-    const nativeProvider = {
-      id: "native-fixture",
-      name: "Synthetic native fixture",
-      version: "1",
-    };
-    const dossier = functionDossierSchema.parse({
-      procedure: {
-        address: "0x1000",
-        name: "open_native",
-        classification: {
-          external: false,
-          thunk: false,
-          thunk_target: null,
-          provenance: "synthetic-provider",
-        },
-        body: { available: false, reason: "Synthetic test Evidence only." },
-        signature: null,
-        locals: [],
-      },
-      pseudocode: "",
-      assembly: [],
-      comments: [],
-      callers: [],
-      callees: [],
-      incoming_references: [],
-      outgoing_references: [],
-      referenced_strings: [],
-      referenced_names: [],
-      basic_blocks: [],
-      native_api: null,
-      native_value_flow: null,
-      limitations: ["No native provider was executed."],
-    });
-    const cases = [
-      {
-        format: "pe",
-        scope: "nativehelper.dll",
-        module: "nativehelper.dll",
-        status: "verified",
-      },
-      {
-        format: "pe",
-        scope: "nativehelper.dll",
-        module: "nativehelper.exe",
-        status: "contradicted",
-      },
-      {
-        format: "pe",
-        scope: "nativehelper.dll",
-        module: "nativehelper.node",
-        status: "contradicted",
-      },
-      {
-        format: "pe",
-        scope: "nativehelper",
-        module: "nativehelper.dll",
-        status: "verified",
-      },
-      {
-        scope: "nativedep.so.6",
-        module: "libnativedep.so.6",
-        format: "elf",
-        status: "verified",
-      },
-    ] as const;
+type PinvokeOutcome =
+  ManagedNativeVerificationResult["pinvoke_imports"][number];
+type AdapterCase = {
+  scope: string;
+  module: string;
+  format?: "pe" | "elf" | "mach-o" | "file";
+  status: PinvokeOutcome["status"];
+  nativeName?: string;
+  mappingFlags?: number;
+  basis?: PinvokeOutcome["basis"];
+};
 
-    for (const [index, item] of cases.entries()) {
+const nativeCases: readonly AdapterCase[] = [
+  {
+    format: "pe",
+    scope: "nativehelper.dll",
+    module: "nativehelper.dll",
+    status: "verified",
+  },
+  {
+    format: "pe",
+    scope: "nativehelper.dll",
+    module: "nativehelper.exe",
+    status: "contradicted",
+  },
+  {
+    format: "pe",
+    scope: "nativehelper.dll",
+    module: "nativehelper.node",
+    status: "contradicted",
+  },
+  {
+    format: "pe",
+    scope: "nativehelper",
+    module: "nativehelper.dll",
+    status: "verified",
+  },
+  {
+    scope: "nativedep.so.6",
+    module: "libnativedep.so.6",
+    format: "elf",
+    status: "verified",
+  },
+  {
+    scope: "nativehelper",
+    module: "libnativehelper.so",
+    format: "elf",
+    nativeName: "open_nativeA",
+    mappingFlags: 0x0202,
+    status: "unresolved",
+    basis: "no-native-candidate",
+  },
+  {
+    scope: "nativehelper",
+    module: "libnativehelper.so",
+    format: "elf",
+    nativeName: "open_nativeW",
+    mappingFlags: 0x0204,
+    status: "unresolved",
+    basis: "no-native-candidate",
+  },
+  {
+    scope: "nativehelper.dll",
+    module: "nativehelper.dll",
+    format: "pe",
+    nativeName: "open_nativeA",
+    mappingFlags: 0x0202,
+    status: "inferred",
+    basis: "decorated-name-candidate",
+  },
+  {
+    scope: "nativehelper.dll",
+    module: "nativehelper.dll",
+    format: "pe",
+    nativeName: "open_nativeW",
+    mappingFlags: 0x0204,
+    status: "inferred",
+    basis: "decorated-name-candidate",
+  },
+  {
+    scope: "nativehelper.dll",
+    module: "nativehelper.dll",
+    format: "pe",
+    nativeName: "open_nativeW",
+    mappingFlags: 0x0205,
+    status: "unresolved",
+    basis: "no-native-candidate",
+  },
+  {
+    scope: "nativehelper",
+    module: "libnativehelper.so",
+    format: "elf",
+    nativeName: "_open_native@0",
+    mappingFlags: 0x0300,
+    status: "unresolved",
+    basis: "no-native-candidate",
+  },
+];
+
+for (const [index, item] of nativeCases.entries()) {
+  cliTest(
+    `matches ${item.scope} to ${item.module} using ${item.nativeName ?? "open_native"} (flags ${item.mappingFlags?.toString(16) ?? "default"}) through CLI and MCP`,
+    async ({ cli }) => {
+      const root = await createTestTempDirectory(
+        "rea-managed-native-module-names-",
+      );
+      const nativeProvider = {
+        id: "native-fixture",
+        name: "Synthetic native fixture",
+        version: "1",
+      };
+      const dossier = functionDossierSchema.parse({
+        procedure: {
+          address: "0x1000",
+          name: "open_native",
+          classification: {
+            external: false,
+            thunk: false,
+            thunk_target: null,
+            provenance: "synthetic-provider",
+          },
+          body: { available: false, reason: "Synthetic test Evidence only." },
+          signature: null,
+          locals: [],
+        },
+        pseudocode: "",
+        assembly: [],
+        comments: [],
+        callers: [],
+        callees: [],
+        incoming_references: [],
+        outgoing_references: [],
+        referenced_strings: [],
+        referenced_names: [],
+        basic_blocks: [],
+        native_api: null,
+        native_value_flow: null,
+        limitations: ["No native provider was executed."],
+      });
       const managedPath = join(root, `managed-${String(index)}.dll`);
       await writeFile(
         managedPath,
         buildManagedPeFixture({
-          pinvoke: { importName: "open_native", moduleName: item.scope },
+          pinvoke: {
+            importName: "open_native",
+            moduleName: item.scope,
+            ...(item.mappingFlags === undefined
+              ? {}
+              : { mappingFlags: item.mappingFlags }),
+          },
         }),
       );
       const inspected = await client.callTool({
@@ -145,7 +220,13 @@ cliTest(
         {
           operation: "analyze_function",
           parameters: {},
-          result: dossier,
+          result: {
+            ...dossier,
+            procedure: {
+              ...dossier.procedure,
+              name: item.nativeName ?? dossier.procedure.name,
+            },
+          },
           rawResult: null,
           limitations: ["Synthetic native Evidence; no provider executed."],
         },
@@ -175,11 +256,22 @@ cliTest(
       expect(mcpResult.pinvoke_imports[0]).toMatchObject({
         status: item.status,
         ...(item.status === "contradicted" ? { basis: "module-mismatch" } : {}),
+        ...(item.basis === undefined ? {} : { basis: item.basis }),
       });
-    }
-  },
-  60_000,
-);
+      if (item.basis === "no-native-candidate")
+        expect(mcpResult.pinvoke_imports[0]).toMatchObject({
+          confidence: "unknown",
+          matched_native: null,
+          candidates: [],
+        });
+      if (item.status === "inferred")
+        expect(mcpResult.pinvoke_imports[0]).toMatchObject({
+          confidence: "inferred",
+          matched_native: { name: item.nativeName },
+        });
+    },
+  );
+}
 
 cliTest(
   "counts authentic unsupported native Evidence identically through MCP and CLI",

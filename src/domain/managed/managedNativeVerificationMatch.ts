@@ -256,16 +256,12 @@ const candidateNames = (
 ): readonly string[] => {
   if (managed.import_name.length === 0) return [];
   const names = new Set<string>([managed.import_name]);
-  if (!managed.no_mangle) {
-    if (
-      managed.char_set === "unicode" ||
-      (nativeFormat === "pe" && managed.char_set === "auto")
-    )
+  // A/W probes and stdcall spellings belong to the Windows loader. Charset
+  // marshalling alone cannot establish name probing for another native format.
+  if (!managed.no_mangle && nativeFormat === "pe") {
+    if (managed.char_set === "unicode" || managed.char_set === "auto")
       names.add(`${managed.import_name}W`);
-    if (
-      managed.char_set === "ansi" ||
-      (nativeFormat === "pe" && managed.char_set === "not-specified")
-    )
+    if (managed.char_set === "ansi" || managed.char_set === "not-specified")
       names.add(`${managed.import_name}A`);
     if (managed.call_convention === "stdcall") {
       names.add(`_${managed.import_name}`);
