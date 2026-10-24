@@ -121,12 +121,13 @@ cliTest(
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-member-summary-cli-");
     const path = join(root, "fixture.dll");
+    const selectedPath = `${root}/./fixture.dll`;
     const bundlePath = join(root, "members.json");
     await writeFile(path, memberFixture());
     const typeNames = ["Fixture.Program", "Missing.Type"];
     const arguments_ = [
       "inspect-managed-members",
-      path,
+      selectedPath,
       ...typeNames.flatMap((type) => ["--type", type]),
       "--json",
     ];
@@ -175,7 +176,10 @@ cliTest(
     expect(parent.raw_result).toEqual(complete.raw_result);
     expect(parent.subject).toEqual(complete.subject);
     expect(parent.locations).toEqual(complete.locations);
-    expect(parent.parameters).toEqual({ type_names: typeNames });
+    expect(parent.parameters).toEqual({
+      input_path: selectedPath,
+      type_names: typeNames,
+    });
     expect(receipt.evidence_links).toEqual([parent.evidence_id]);
     const portable = await inspectAnalysisView({
       source: { kind: "inline", evidence: parent },
