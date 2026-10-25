@@ -94,9 +94,10 @@ It also requires each declared secret's environment variable to be set, which
 is the rule a capture applies before acquiring a browser. Errors are the same
 `invalid_request` projection with field paths, under
 `"error": "Browser scenario validation failed"`. A valid scenario exits 0
-with a compact plan and creates no provider, profile, file or connection:
+with a compact plan and creates no provider, profile, file or connection
+(output shown for the minimal example above):
 
-```json
+```text
 {
   "operation": "capture_browser_scenario",
   "dry_run": true,
