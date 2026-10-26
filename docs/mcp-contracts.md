@@ -1382,8 +1382,11 @@ tool does not report an advertised composed tool as unavailable. Guided
 prompts follow the scope too: a workflow is advertised only when every tool in
 its suggested steps belongs to a selected family, so a partially available
 workflow is omitted from `prompts/list` instead of rendering a disabled call;
-`prompts/get` reports it as not found. The server
-identity digest and
+`prompts/get` reports it as not found. A scope can omit all guided prompts;
+doctor treats a server without the prompts capability as an empty inventory.
+Recovery instructions recommend runtime settings tools only when `application`
+is advertised; otherwise they explain launch settings and how to widen the scope.
+The server identity digest and
 `rea mcp doctor` tool and prompt inventory derive from the
 same selected scope, so a scoped server reports itself healthy; a scope
 without the `session` family cannot serve `binary_session`, and doctor says

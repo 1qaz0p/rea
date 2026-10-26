@@ -11,12 +11,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import {
+  MCP_DOCTOR_SESSION_SCOPE_DETAIL,
   compareInventory,
   runProductionMcpDoctor,
   runProductionMcpDoctorCli,
 } from "../../../src/mcpDoctor.js";
 import {
   FULL_CATALOG_IDENTITY,
+  catalogIdentityForToolFamilies,
   createCatalogIdentity,
 } from "../../../src/catalogIdentity.js";
 import { compactPresentationForMcpInputSchemaProfile } from "../../../src/config/mcpInputSchemaProfile.js";
@@ -228,6 +230,9 @@ describe("production MCP doctor", () => {
     },
     30_000,
   );
+});
+
+describe("production MCP doctor family scopes", () => {
   it.each([
     { families: "session", output: "full" },
     { families: "session,application", output: "compact" },
@@ -259,9 +264,47 @@ describe("production MCP doctor", () => {
         },
         request_flow: { tool: "binary_session", ok: true },
       });
+      await assertCliCatalogIdentity(
+        {
+          ...process.env,
+          REA_MCP_TOOL_FAMILIES: families,
+          REA_MCP_OUTPUT_SCHEMA_PROFILE: output,
+        },
+        catalogIdentityForToolFamilies(
+          compactPresentationForMcpInputSchemaProfile(
+            process.env.REA_MCP_INPUT_SCHEMA_PROFILE === "full"
+              ? "full"
+              : "compact",
+          ),
+          output,
+          new Set(families.split(",")),
+        ),
+      );
     },
     30_000,
   );
+
+  it("discovers an empty prompt inventory and explains a scope without session", async () => {
+    const result = await runProductionMcpDoctor({
+      command: process.execPath,
+      args: [resolve("scripts/rea.mjs"), "mcp"],
+      cwd: process.cwd(),
+      environment: { ...process.env, REA_MCP_TOOL_FAMILIES: "browser" },
+    });
+    expect(result).toMatchObject({
+      healthy: false,
+      adapter: "production-stdio",
+      inventory: {
+        prompts: { expected: 0, observed: 0, missing: [], unexpected: [] },
+      },
+      request_flow: { tool: "binary_session", ok: false },
+    });
+    expect(result.checks).toContainEqual({
+      name: "request-flow",
+      ok: false,
+      detail: MCP_DOCTOR_SESSION_SCOPE_DETAIL,
+    });
+  });
 
   it("fails startup instead of misreporting inventory for an invalid scope", async () => {
     const result = await runProductionMcpDoctor({
