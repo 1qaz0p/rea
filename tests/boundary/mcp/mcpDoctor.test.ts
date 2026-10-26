@@ -1,3 +1,4 @@
+import { contractsForToolFamilies } from "../../../src/contracts/toolFamilies.js";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { execFile } from "node:child_process";
@@ -70,9 +71,10 @@ const catalogProfiles = [
       REA_MCP_INPUT_SCHEMA_PROFILE: undefined,
       REA_MCP_OUTPUT_SCHEMA_PROFILE: "full",
     },
-    identity: createCatalogIdentity(
-      compactPresentationForMcpInputSchemaProfile(undefined),
-    ),
+    identity: createCatalogIdentity({
+      compactPresentation:
+        compactPresentationForMcpInputSchemaProfile(undefined),
+    }),
   },
   {
     name: "full",
@@ -88,9 +90,10 @@ const catalogProfiles = [
       REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
       REA_MCP_OUTPUT_SCHEMA_PROFILE: "full",
     },
-    identity: createCatalogIdentity(
-      compactPresentationForMcpInputSchemaProfile("compact"),
-    ),
+    identity: createCatalogIdentity({
+      compactPresentation:
+        compactPresentationForMcpInputSchemaProfile("compact"),
+    }),
   },
   {
     name: "output schemas off",
@@ -98,7 +101,7 @@ const catalogProfiles = [
       REA_MCP_INPUT_SCHEMA_PROFILE: "full",
       REA_MCP_OUTPUT_SCHEMA_PROFILE: "off",
     },
-    identity: createCatalogIdentity(undefined, "off"),
+    identity: createCatalogIdentity({ outputSchemaProfile: "off" }),
   },
   {
     name: "output schemas compact",
@@ -106,7 +109,7 @@ const catalogProfiles = [
       REA_MCP_INPUT_SCHEMA_PROFILE: "full",
       REA_MCP_OUTPUT_SCHEMA_PROFILE: "compact",
     },
-    identity: createCatalogIdentity(undefined, "compact"),
+    identity: createCatalogIdentity({ outputSchemaProfile: "compact" }),
   },
   {
     name: "compact input and output schemas off",
@@ -114,10 +117,11 @@ const catalogProfiles = [
       REA_MCP_INPUT_SCHEMA_PROFILE: "compact",
       REA_MCP_OUTPUT_SCHEMA_PROFILE: "off",
     },
-    identity: createCatalogIdentity(
-      compactPresentationForMcpInputSchemaProfile("compact"),
-      "off",
-    ),
+    identity: createCatalogIdentity({
+      compactPresentation:
+        compactPresentationForMcpInputSchemaProfile("compact"),
+      outputSchemaProfile: "off",
+    }),
   },
 ];
 
@@ -138,13 +142,13 @@ describe("production MCP doctor", () => {
         for (const input of ["full", "compact"]) {
           assert.ok(Object.isFrozen(profiles[input]));
           for (const output of ["full", "compact", "off"]) {
-            const identity = createCatalogIdentity(input === "compact" ? { budgetBytes } : undefined, output);
+            const identity = createCatalogIdentity({compactPresentation: input === "compact" ? { budgetBytes } : undefined, outputSchemaProfile: output});
             assert.equal(identity.digests, profiles[input][output]);
             assert.ok(Object.isFrozen(identity.digests));
           }
         }
         const selection = { budgetBytes: 1 };
-        const custom = createCatalogIdentity(selection, "off");
+        const custom = createCatalogIdentity({compactPresentation: selection, outputSchemaProfile: "off"});
         selection.budgetBytes = budgetBytes;
         const expected = createCatalogDigests(undefined, undefined, { budgetBytes: 1 }, "off");
         assert.deepEqual(custom.digests, expected);
@@ -224,6 +228,59 @@ describe("production MCP doctor", () => {
     },
     30_000,
   );
+  it.each([
+    { families: "session", output: "full" },
+    { families: "session,application", output: "compact" },
+  ] as const)(
+    "reports a selected family scope healthy with its own inventory and digest ($output)",
+    async ({ families, output }) => {
+      const result = await runProductionMcpDoctor({
+        command: process.execPath,
+        args: [resolve("scripts/rea.mjs"), "mcp"],
+        cwd: process.cwd(),
+        environment: {
+          ...process.env,
+          REA_MCP_TOOL_FAMILIES: families,
+          REA_MCP_OUTPUT_SCHEMA_PROFILE: output,
+        },
+      });
+
+      const expected = contractsForToolFamilies(new Set(families.split(",")));
+      expect(result).toMatchObject({
+        healthy: true,
+        adapter: "production-stdio",
+        inventory: {
+          tools: {
+            expected: expected.length,
+            observed: expected.length,
+            missing: [],
+            unexpected: [],
+          },
+        },
+        request_flow: { tool: "binary_session", ok: true },
+      });
+    },
+    30_000,
+  );
+
+  it("fails startup instead of misreporting inventory for an invalid scope", async () => {
+    const result = await runProductionMcpDoctor({
+      command: process.execPath,
+      args: [resolve("scripts/rea.mjs"), "mcp"],
+      cwd: process.cwd(),
+      environment: { ...process.env, REA_MCP_TOOL_FAMILIES: "session,typo" },
+    });
+
+    expect(result.healthy).toBe(false);
+    expect(result.checks).toContainEqual({
+      name: "transport",
+      ok: false,
+      detail: expect.any(String),
+    });
+    expect(result.diagnostics?.stderr).toEqual(
+      expect.stringContaining("REA_MCP_TOOL_FAMILIES"),
+    );
+  }, 30_000);
 });
 
 describe("production MCP doctor output", () => {
