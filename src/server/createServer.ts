@@ -96,10 +96,8 @@ import { registerBinaryDiagnosticsTools } from "./registerBinaryDiagnosticsTools
 import { FridaInstrumentationManager } from "../frida/FridaInstrumentationManager.js";
 import { registerFridaTools } from "./registerFridaTools.js";
 import type { BinaryLayoutService } from "../application/binaryDiagnostics/BinaryLayoutService.js";
-import {
-  EvidenceMcpServer,
-  catalogIdentityForToolFamilies,
-} from "./EvidenceMcpServer.js";
+import { EvidenceMcpServer } from "./EvidenceMcpServer.js";
+import { catalogIdentityForToolFamilies } from "../catalogIdentity.js";
 import { parseMcpToolFamilies } from "../config/mcpToolFamilies.js";
 import { toolFamilyId } from "../contracts/toolFamilies.js";
 import { createToolResultDelivery } from "./toolResult.js";

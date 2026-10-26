@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import canonicalize from "canonicalize";
 
+import { contractsForToolFamilies } from "./contracts/toolFamilies.js";
+import { promptsForToolFamilies } from "./contracts/promptContracts.js";
 import { PROMPT_CONTRACTS } from "./contracts/promptContracts.js";
 import type { PromptContract } from "./contracts/promptContracts.js";
 import { TOOL_CONTRACTS } from "./contracts/toolContracts.js";
@@ -242,3 +244,27 @@ export const FULL_CATALOG_IDENTITY = createCatalogIdentity();
 export const DEFAULT_CATALOG_IDENTITY = createCatalogIdentity({
   compactPresentation: compactPresentationForMcpInputSchemaProfile(undefined),
 });
+
+/**
+ * Identity whose digests cover exactly the contracts a registration advertises.
+ * Composition reuses it when a deferred server attaches its runtime, so both
+ * paths derive the same value from the same scope.
+ */
+export const catalogIdentityForToolFamilies = (
+  compactPresentation: CompactInputSchemaPresentation | undefined,
+  outputSchemaProfile: McpOutputSchemaProfile,
+  advertisedToolFamilies: ReadonlySet<string> | undefined,
+): ReturnType<typeof createCatalogIdentity> =>
+  compactPresentation === undefined &&
+  outputSchemaProfile === "full" &&
+  advertisedToolFamilies === undefined
+    ? FULL_CATALOG_IDENTITY
+    : createCatalogIdentity({
+        compactPresentation:
+          compactPresentation === undefined
+            ? undefined
+            : { budgetBytes: compactPresentation.budgetBytes },
+        contracts: contractsForToolFamilies(advertisedToolFamilies),
+        outputSchemaProfile,
+        promptContracts: promptsForToolFamilies(advertisedToolFamilies),
+      });
