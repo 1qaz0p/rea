@@ -8,9 +8,9 @@ Evidence, verifies repeated discovery and closes the server before authenticatin
 the exported records. GNU `nm` independently corroborates every returned export
 name/address and the complete name set. No target executable is launched.
 
-The baseline is main `9085222ca1b5a636d4835a48b8bfed03da461b4f`, including
+The baseline is main `e54bf1006`, including
 #7218's compact output profile. The feature is
-`373855f43d7f3b9d8690ea20709f24d23778162a`, integrating #3026. Both use the
+`1cf1973dd58a303dafcbb492b2e2d02775fb90e7`, integrating #3026. Both use the
 same `mcp-output-profile.mjs` driver, installed SDK, Node 24.22.1 and Linux x64
 host. The target SHA-256 is
 `aa01e614af634bc7c8b678c9250b5c4f613c61989bacf0a5d6aed6570e7dcabd`.
@@ -30,14 +30,14 @@ its output profile differs from the compact performance comparison.
 | Whole case                                           | Main, no scope | Selected, compact output | Selected, full output | Feature, no scope |
 | ---------------------------------------------------- | -------------: | -----------------------: | --------------------: | ----------------: |
 | Tools                                                |            229 |                       73 |                    73 |               229 |
-| Catalog result bytes                                 |        554,792 |                  192,959 |             1,400,351 |           554,792 |
-| Catalog cl100k estimate                              |        116,962 |                   41,157 |               354,972 |           116,962 |
+| Catalog result bytes                                 |        554,792 |                  192,959 |             1,400,171 |           554,792 |
+| Catalog cl100k estimate                              |        116,962 |                   41,157 |               354,926 |           116,962 |
 | Names/descriptions/input-schema estimate             |         56,909 |                   23,070 |                23,070 |            56,909 |
-| Completed task, one discovery, wire estimate         |        123,498 |                   47,690 |               361,508 |           123,498 |
-| Executed task with repeated discovery, wire estimate |        240,491 |                   88,878 |               716,511 |           240,491 |
-| Elapsed seconds                                      |           6.05 |                     4.69 |                  9.85 |              5.30 |
-| CPU seconds                                          |           7.19 |                     5.89 |                 12.02 |              6.69 |
-| Sampled family peak RSS, GiB                         |           0.62 |                     0.56 |                  1.06 |              0.59 |
+| Completed task, one discovery, wire estimate         |        123,501 |                   47,693 |               361,462 |           123,501 |
+| Executed task with repeated discovery, wire estimate |        240,494 |                   88,881 |               716,419 |           240,494 |
+| Elapsed seconds                                      |          21.89 |                     7.00 |                 12.18 |              8.26 |
+| CPU seconds                                          |          12.16 |                     6.56 |                 12.23 |              7.59 |
+| Sampled family peak RSS, GiB                         |           0.60 |                     0.56 |                  1.04 |              0.59 |
 
 Whole costs include the SDK client, server startup, both analyses, page,
 complete export, offline verification and cleanup. Each case starts a fresh
@@ -118,3 +118,9 @@ isolated feature run (21.4/16.6 seconds), and the representative baseline case
 passed in 19.1 seconds. These observations do not establish a deterministic
 feature defect or a complete explanation for the timing variation. The initial
 failed receipt is retained; test deadlines were unchanged.
+
+A post-rebase combined verification command reached its 190-second outer wall
+guard during documentation generation after build, all three stdio profile
+cases and check:fast passed. Only the remaining documentation/format checks
+were resumed and passed. This was a verification-batch stop, not an OOM or a
+completed-investigation result; the stopped receipt remains available.
